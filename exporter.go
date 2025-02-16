@@ -92,7 +92,7 @@ var (
 	sslCaCert     = kingpin.Flag("nginx.ssl-ca-cert", "Path to the PEM encoded CA certificate file used to validate the servers SSL certificate.").Default("").Envar("SSL_CA_CERT").String()
 	sslClientCert = kingpin.Flag("nginx.ssl-client-cert", "Path to the PEM encoded client certificate file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_CERT").String()
 	sslClientKey  = kingpin.Flag("nginx.ssl-client-key", "Path to the PEM encoded client certificate key file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_KEY").String()
-	useProxyProto = kingpin.Flag("nginx.proxy-protocol", "Pass proxy protocol payload to nginx listeners").Default("false").Envar("PROXY_PROTOCOL").Bool()
+	useProxyProto = kingpin.Flag("nginx.proxy-protocol", "Pass proxy protocol payload to nginx listeners.").Default("false").Envar("PROXY_PROTOCOL").Bool()
 
 	// Custom command-line flags.
 	timeout = createPositiveDurationFlag(kingpin.Flag("nginx.timeout", "A timeout for scraping metrics from NGINX or NGINX Plus.").Default("5s").Envar("TIMEOUT").HintOptions("5s", "10s", "30s", "1m", "5m"))
