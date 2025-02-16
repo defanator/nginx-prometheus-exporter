@@ -170,25 +170,22 @@ func main() {
 				return nil, err
 			}
 
-			// TODO: set TransportProtocol based on conn proto/family
-			remote_addr := conn.RemoteAddr()
-			transport_protocol := proxyproto.TCPv4
+			remoteAddr := conn.RemoteAddr()
+			transportProtocol := proxyproto.TCPv4
 
-			switch addr := remote_addr.(type) {
-			case *net.TCPAddr:
+			switch addr := remoteAddr.(type) {
+			case *net.TCPAddr: // we do not expect UDPAddr or IPAddr here
 				if addr.IP.To4() == nil {
-					transport_protocol = proxyproto.TCPv6
+					transportProtocol = proxyproto.TCPv6
 				}
 			}
 
 			header := &proxyproto.Header{
-				Version: 2,
-				Command: proxyproto.PROXY,
-				//TransportProtocol: proxyproto.TCPv4,
-				TransportProtocol: transport_protocol,
+				Version:           2,
+				Command:           proxyproto.PROXY,
+				TransportProtocol: transportProtocol,
 				SourceAddr:        conn.LocalAddr(),
-				//DestinationAddr:   conn.RemoteAddr(),
-				DestinationAddr: remote_addr,
+				DestinationAddr:   remoteAddr,
 			}
 
 			_, err = header.WriteTo(conn)
