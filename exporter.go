@@ -163,40 +163,6 @@ func main() {
 		TLSClientConfig: sslConfig,
 	}
 
-	if *useProxyProto {
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := (&net.Dialer{}).Dial(network, addr)
-			if err != nil {
-				return nil, err
-			}
-
-			remoteAddr := conn.RemoteAddr()
-			transportProtocol := proxyproto.TCPv4
-
-			switch addr := remoteAddr.(type) {
-			case *net.TCPAddr: // we do not expect UDPAddr or IPAddr here
-				if addr.IP.To4() == nil {
-					transportProtocol = proxyproto.TCPv6
-				}
-			}
-
-			header := &proxyproto.Header{
-				Version:           2,
-				Command:           proxyproto.PROXY,
-				TransportProtocol: transportProtocol,
-				SourceAddr:        conn.LocalAddr(),
-				DestinationAddr:   remoteAddr,
-			}
-
-			_, err = header.WriteTo(conn)
-			if err != nil {
-				return nil, err
-			}
-
-			return conn, nil
-		}
-	}
-
 	if len(*scrapeURIs) == 1 {
 		registerCollector(logger, transport, (*scrapeURIs)[0], constLabels)
 	} else {
@@ -260,17 +226,64 @@ func main() {
 func registerCollector(logger *slog.Logger, transport *http.Transport,
 	addr string, labels map[string]string,
 ) {
+	socketPath := ""
+
 	if strings.HasPrefix(addr, "unix:") {
-		socketPath, requestPath, err := parseUnixSocketAddress(addr)
+		_socketPath, requestPath, err := parseUnixSocketAddress(addr)
 		if err != nil {
 			logger.Error("parsing unix domain socket scrape address failed", "uri", addr, "error", err.Error())
 			os.Exit(1)
 		}
+		socketPath = _socketPath
+		addr = "http://unix" + requestPath
+	}
 
+	if !*useProxyProto && socketPath != "" {
 		transport.DialContext = func(_ context.Context, _, _ string) (net.Conn, error) {
 			return net.Dial("unix", socketPath)
 		}
-		addr = "http://unix" + requestPath
+	}
+
+	if *useProxyProto {
+		transport.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
+			if socketPath != "" {
+				network = "unix"
+				addr = socketPath
+			}
+
+			conn, err := (&net.Dialer{}).Dial(network, addr)
+			if err != nil {
+				return nil, fmt.Errorf("dialing %s %s: %w", network, addr, err)
+			}
+
+			localAddr := conn.LocalAddr()
+			remoteAddr := conn.RemoteAddr()
+			transportProtocol := proxyproto.TCPv4
+
+			switch addr := remoteAddr.(type) {
+			case *net.TCPAddr:
+				if addr.IP.To4() == nil {
+					transportProtocol = proxyproto.TCPv6
+				}
+			case *net.UnixAddr:
+				transportProtocol = proxyproto.UnixStream
+			}
+
+			header := &proxyproto.Header{
+				Version:           2,
+				Command:           proxyproto.PROXY,
+				TransportProtocol: transportProtocol,
+				SourceAddr:        localAddr,
+				DestinationAddr:   remoteAddr,
+			}
+
+			_, err = header.WriteTo(conn)
+			if err != nil {
+				return nil, fmt.Errorf("writing proxyproto header: %w", err)
+			}
+
+			return conn, nil
+		}
 	}
 
 	userAgent := fmt.Sprintf("NGINX-Prometheus-Exporter/v%v", common_version.Version)
