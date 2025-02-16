@@ -226,15 +226,16 @@ func main() {
 func registerCollector(logger *slog.Logger, transport *http.Transport,
 	addr string, labels map[string]string,
 ) {
-	socketPath := ""
+	var socketPath string
 
 	if strings.HasPrefix(addr, "unix:") {
-		_socketPath, requestPath, err := parseUnixSocketAddress(addr)
+		var err error
+		var requestPath string
+		socketPath, requestPath, err = parseUnixSocketAddress(addr)
 		if err != nil {
 			logger.Error("parsing unix domain socket scrape address failed", "uri", addr, "error", err.Error())
 			os.Exit(1)
 		}
-		socketPath = _socketPath
 		addr = "http://unix" + requestPath
 	}
 
