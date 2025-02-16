@@ -30,6 +30,8 @@ import (
 
 	"github.com/prometheus/exporter-toolkit/web"
 	"github.com/prometheus/exporter-toolkit/web/kingpinflag"
+
+	proxyproto "github.com/pires/go-proxyproto"
 )
 
 // positiveDuration is a wrapper of time.Duration to ensure only positive values are accepted.
@@ -90,6 +92,7 @@ var (
 	sslCaCert     = kingpin.Flag("nginx.ssl-ca-cert", "Path to the PEM encoded CA certificate file used to validate the servers SSL certificate.").Default("").Envar("SSL_CA_CERT").String()
 	sslClientCert = kingpin.Flag("nginx.ssl-client-cert", "Path to the PEM encoded client certificate file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_CERT").String()
 	sslClientKey  = kingpin.Flag("nginx.ssl-client-key", "Path to the PEM encoded client certificate key file to use when connecting to the server.").Default("").Envar("SSL_CLIENT_KEY").String()
+	useProxyProto = kingpin.Flag("nginx.proxy-protocol", "Pass proxy protocol payload to nginx listeners").Default("false").Envar("PROXY_PROTOCOL").Bool()
 
 	// Custom command-line flags.
 	timeout = createPositiveDurationFlag(kingpin.Flag("nginx.timeout", "A timeout for scraping metrics from NGINX or NGINX Plus.").Default("5s").Envar("TIMEOUT").HintOptions("5s", "10s", "30s", "1m", "5m"))
@@ -158,6 +161,43 @@ func main() {
 
 	transport := &http.Transport{
 		TLSClientConfig: sslConfig,
+	}
+
+	if *useProxyProto {
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := (&net.Dialer{}).Dial(network, addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// TODO: set TransportProtocol based on conn proto/family
+			remote_addr := conn.RemoteAddr()
+			transport_protocol := proxyproto.TCPv4
+
+			switch addr := remote_addr.(type) {
+			case *net.TCPAddr:
+				if addr.IP.To4() == nil {
+					transport_protocol = proxyproto.TCPv6
+				}
+			}
+
+			header := &proxyproto.Header{
+				Version: 2,
+				Command: proxyproto.PROXY,
+				//TransportProtocol: proxyproto.TCPv4,
+				TransportProtocol: transport_protocol,
+				SourceAddr:        conn.LocalAddr(),
+				//DestinationAddr:   conn.RemoteAddr(),
+				DestinationAddr: remote_addr,
+			}
+
+			_, err = header.WriteTo(conn)
+			if err != nil {
+				return nil, err
+			}
+
+			return conn, nil
+		}
 	}
 
 	if len(*scrapeURIs) == 1 {
